@@ -1,0 +1,1002 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Muro de Ecorregiones</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+/* Cuaderno de campo: curvas de nivel arriba, filtros por ecorregión, muro en columnas. Cada ecorregión tiene su color. */
+:root{
+  --bg:#edf0ea; --surface:#fbfcf8; --surface-2:#f3f5ef; --ink:#1b2620; --muted:#5b675e; --line:#d3d9cd;
+  --accent:#2c6a4e; --accent-ink:#ffffff; --ochre:#b9821f; --danger:#b23f2c; --danger-bg:#f8e1dc; --ok:#2b7a47; --ok-bg:#dcefe1;
+  --shadow:rgba(27,38,32,.22); --scrim:rgba(14,20,16,.55);
+  --f-display:"Archivo","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111713; --surface:#19211b; --surface-2:#1f2922; --ink:#e4eae2; --muted:#9ba89d; --line:#2c372f;
+  --accent:#6dbe91; --accent-ink:#0d1510; --ochre:#e2ad52; --danger:#ee7c66; --danger-bg:#3c1c16; --ok:#6fcf8a; --ok-bg:#16301e;
+  --shadow:rgba(0,0,0,.6); --scrim:rgba(0,0,0,.7); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111713; --surface:#19211b; --surface-2:#1f2922; --ink:#e4eae2; --muted:#9ba89d; --line:#2c372f;
+  --accent:#6dbe91; --accent-ink:#0d1510; --ochre:#e2ad52; --danger:#ee7c66; --danger-bg:#3c1c16; --ok:#6fcf8a; --ok-bg:#16301e;
+  --shadow:rgba(0,0,0,.6); --scrim:rgba(0,0,0,.7); color-scheme:dark}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.55}
+.wrap{max-width:1200px;margin:0 auto;padding-inline:20px}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;line-height:1.05}
+p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:3px solid var(--ochre);outline-offset:2px}
+[hidden]{display:none!important}
+.mono{font-family:var(--f-mono)}
+.muted{color:var(--muted)}
+.ico{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+
+/* botones y campos */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:700;font-size:15px;padding:10px 16px;border-radius:999px;border:2px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer;text-decoration:none;white-space:nowrap;transition:transform .12s,background .2s}
+.btn:active{transform:scale(.97)}
+.btn.accent{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.danger{background:transparent;border-color:var(--danger);color:var(--danger)}
+.btn.sm{padding:6px 12px;font-size:14px}
+.btn[disabled]{opacity:.5;cursor:default}
+.field{display:grid;gap:6px}
+.field label{font-weight:700;font-size:14px}
+.field small{color:var(--muted);font-size:13px}
+.input{width:100%;padding:11px 13px;border-radius:12px;border:2px solid var(--line);background:var(--surface);transition:border-color .2s}
+.input:focus{border-color:var(--accent);outline:none}
+textarea.input{min-height:110px;resize:vertical}
+
+/* barra superior */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:30;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;align-items:center;gap:12px;padding-block:10px}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--f-display);font-weight:800;font-stretch:115%;font-size:18px;letter-spacing:-.01em;white-space:nowrap}
+.logo svg{width:30px;height:30px}
+.spacer{flex:1}
+.who{display:flex;align-items:center;gap:8px;font-size:14px;min-width:0}
+.who b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:22ch}
+.role{font-family:var(--f-mono);font-size:12px;padding:2px 8px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
+.role.prof{background:var(--ochre);border-color:var(--ochre);color:#1b1408}
+.dot-net{width:9px;height:9px;border-radius:50%;background:var(--muted)}
+.dot-net.on{background:var(--ok)}
+
+/* portada con curvas de nivel */
+.hero{position:relative;overflow:hidden;border-bottom:1px solid var(--line)}
+.hero canvas{position:absolute;inset:0;width:100%;height:100%;opacity:.9}
+.hero .wrap{position:relative;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,.7fr);gap:28px;align-items:end;padding-block:48px 36px}
+.eyebrow{font-family:var(--f-mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.hero h1{font-size:clamp(40px,7vw,86px);font-weight:900;font-stretch:125%;letter-spacing:-.03em;margin:10px 0 14px;line-height:.92}
+.hero p.lead{font-size:19px;max-width:52ch}
+.stats{display:grid;gap:12px;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:18px;padding:18px}
+.stat{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.stat b{font-family:var(--f-display);font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+.rot{font-family:var(--f-display);font-weight:800;font-stretch:110%;font-size:clamp(20px,2.6vw,28px);margin:-4px 0 14px;display:flex;flex-wrap:wrap;gap:0 .35em;align-items:baseline}
+.rot span{display:inline-block;color:var(--rc,var(--accent));transition:color .4s}
+
+/* actividad en vivo */
+.ticker{border-bottom:1px solid var(--line);background:var(--surface);overflow:hidden;display:flex;align-items:center}
+.ticker .live{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px;font-family:var(--f-mono);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;background:var(--surface-2);border-right:1px solid var(--line);position:relative;z-index:1}
+.ticker .live i{width:8px;height:8px;border-radius:50%;background:var(--danger);animation:blink 1.4s infinite}
+@keyframes blink{50%{opacity:.25}}
+.ticker .track{display:flex;gap:40px;white-space:nowrap;padding-left:24px;font-size:15px;animation:scroll var(--dur,40s) linear infinite}
+.ticker:hover .track{animation-play-state:paused}
+.ticker .track span{display:inline-flex;gap:8px;align-items:center}
+.ticker .track span::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--eco,var(--accent))}
+@keyframes scroll{to{transform:translateX(-50%)}}
+
+/* juego */
+.game{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,.9fr);gap:22px;align-items:stretch}
+.clue{position:relative;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:24px;display:grid;gap:14px;align-content:start;overflow:hidden}
+.clue::after{content:"";position:absolute;right:-60px;top:-60px;width:200px;height:200px;border-radius:50%;background:var(--gc,var(--accent));opacity:.2;transition:background .5s}
+.clue q{font-family:var(--f-display);font-size:clamp(20px,2.4vw,26px);font-weight:700;line-height:1.25;position:relative;quotes:none}
+.opts{display:grid;gap:10px;align-content:center}
+.opt{text-align:left;padding:14px 16px;border-radius:14px;border:2px solid var(--line);background:var(--surface);font-weight:700;font-size:16px;cursor:pointer;display:flex;align-items:center;gap:10px;transition:border-color .2s,transform .15s,background .2s}
+.opt::before{content:"";width:12px;height:12px;border-radius:50%;background:var(--eco);flex:none}
+.opt:hover:not([disabled]){border-color:var(--eco);transform:translateX(4px)}
+.opt.good{border-color:var(--ok);background:var(--ok-bg)}
+.opt.bad{border-color:var(--danger);background:var(--danger-bg)}
+.opt[disabled]{cursor:default}
+.gscore{display:flex;gap:8px;flex-wrap:wrap}
+.gscore span{font-family:var(--f-mono);font-size:12px;padding:4px 10px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
+.leaf{position:fixed;width:12px;height:12px;border-radius:0 100% 0 100%;pointer-events:none;z-index:200}
+
+/* ecorregiones */
+.section{padding-block:30px}
+.sec-head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:12px;margin-bottom:16px}
+.sec-head h2{font-size:clamp(24px,3vw,34px);font-weight:800;font-stretch:112%}
+.ecos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,170px),1fr));gap:10px}
+.eco{position:relative;text-align:left;border:2px solid var(--line);background:var(--surface);border-radius:14px;padding:12px 12px 12px 18px;cursor:pointer;display:grid;gap:2px;overflow:hidden;transition:border-color .2s,transform .2s}
+.eco::before{content:"";position:absolute;left:0;top:0;bottom:0;width:7px;background:var(--eco)}
+.eco:hover{transform:translateY(-2px);border-color:var(--eco)}
+.eco[aria-pressed="true"]{border-color:var(--eco);background:color-mix(in srgb,var(--eco) 16%,var(--surface))}
+.eco b{font-size:15px;line-height:1.2}
+.eco span{font-size:13px;color:var(--muted);line-height:1.3}
+.eco em{position:absolute;top:8px;right:10px;font-style:normal;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+
+/* herramientas */
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.tools .input{width:auto;flex:1 1 220px;min-width:0;padding:9px 13px}
+.tools select.input{flex:0 1 auto}
+.banner{display:flex;gap:10px;align-items:center;padding:12px 16px;border-radius:14px;margin-top:14px;font-weight:600}
+.banner.warn{background:var(--danger-bg);color:var(--danger)}
+.banner.info{background:var(--surface-2);border:1px solid var(--line)}
+
+/* muro */
+.wall{columns:3 300px;column-gap:16px;margin-top:18px}
+.card{break-inside:avoid;margin-bottom:16px;background:var(--surface);border:1px solid var(--line);border-radius:18px;overflow:hidden;display:grid;box-shadow:0 10px 26px -22px var(--shadow);animation:rise .45s ease backwards;transition:transform .25s,box-shadow .25s,border-color .25s}
+.card:hover{transform:translateY(-4px);border-color:var(--eco);box-shadow:0 18px 34px -22px var(--shadow)}
+.cover{overflow:hidden}
+.cover img{transition:transform .5s}
+.card:hover .cover img{transform:scale(1.04)}
+@keyframes rise{from{transform:translateY(14px);opacity:0}}
+.card.pinned{border:2px solid var(--ochre)}
+.cover{display:block;width:100%;border:0;padding:0;margin:0;cursor:pointer;background:var(--surface-2);position:relative}
+.cover img,.cover svg{display:block;width:100%;height:auto;max-height:340px;object-fit:cover}
+.cover .play{position:absolute;inset:0;display:grid;place-items:center}
+.cover .play span{width:58px;height:58px;border-radius:50%;background:rgba(0,0,0,.55);display:grid;place-items:center;color:#fff}
+.card-body{padding:14px 16px 16px;display:grid;gap:8px}
+.tag{display:inline-flex;align-items:center;gap:6px;width:fit-content;font-size:12px;font-weight:700;padding:3px 10px 3px 8px;border-radius:999px;background:color-mix(in srgb,var(--eco) 18%,var(--surface));border:1px solid color-mix(in srgb,var(--eco) 45%,transparent)}
+.tag::before{content:"";width:9px;height:9px;border-radius:50%;background:var(--eco)}
+.card h3{font-size:20px;font-weight:800;font-stretch:105%}
+.card h3 button{all:unset;cursor:pointer}
+.card h3 button:focus-visible{outline:3px solid var(--ochre)}
+.by{font-size:14px;color:var(--muted)}
+.excerpt{font-size:15px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.meta{display:flex;gap:14px;align-items:center;font-size:14px;color:var(--muted)}
+.meta span{display:inline-flex;gap:5px;align-items:center}
+.pin{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:var(--ochre);font-family:var(--f-mono);text-transform:uppercase;letter-spacing:.05em}
+.empty{text-align:center;padding:50px 20px;border:2px dashed var(--line);border-radius:18px;display:grid;gap:10px;justify-items:center;margin-top:18px}
+.empty h3{font-size:24px}
+
+/* diálogos */
+dialog{border:0;padding:0;background:var(--surface);color:var(--ink);border-radius:22px;width:min(640px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-shadow:0 30px 80px -20px var(--shadow)}
+dialog.wide{width:min(1000px,calc(100vw - 24px))}
+dialog::backdrop{background:var(--scrim);backdrop-filter:blur(3px)}
+dialog[open]{animation:pop .25s ease}
+@keyframes pop{from{transform:translateY(10px) scale(.98);opacity:0}}
+.dlg{display:grid;gap:16px;padding:22px}
+.dlg-head{display:flex;justify-content:space-between;align-items:start;gap:12px}
+.dlg-head h2{font-size:26px;font-weight:800;font-stretch:110%}
+.x{border:0;background:var(--surface-2);width:38px;height:38px;border-radius:50%;cursor:pointer;display:grid;place-items:center;flex:none}
+.tabs{display:grid;grid-template-columns:1fr 1fr;background:var(--surface-2);border-radius:999px;padding:4px;gap:4px}
+.tabs button{border:0;background:transparent;padding:9px;border-radius:999px;font-weight:700;cursor:pointer}
+.tabs button[aria-selected="true"]{background:var(--surface);box-shadow:0 2px 8px -4px var(--shadow)}
+.err{color:var(--danger);font-weight:600;min-height:1.4em;font-size:15px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* subir archivos */
+.drop{border:2px dashed var(--line);border-radius:16px;padding:22px;text-align:center;display:grid;gap:6px;justify-items:center;cursor:pointer;transition:border-color .2s,background .2s}
+.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.items{display:grid;gap:8px}
+.item{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.item .thumb{width:44px;height:44px;border-radius:8px;background:var(--line);display:grid;place-items:center;font-family:var(--f-mono);font-size:11px;font-weight:600;overflow:hidden}
+.item .thumb img{width:100%;height:100%;object-fit:cover}
+.item .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;font-size:14px}
+.item small{color:var(--muted);font-size:12px}
+.linkrow{display:flex;gap:8px}
+.linkrow .input{flex:1;min-width:0}
+.progress{height:10px;border-radius:999px;background:var(--surface-2);overflow:hidden;border:1px solid var(--line)}
+.progress i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+
+/* visor */
+.viewer-head{display:grid;gap:8px}
+.viewer-head h2{font-size:clamp(24px,3.4vw,34px)}
+.desc{white-space:pre-wrap;font-size:16px}
+.media{display:grid;gap:14px}
+.media img,.media video{width:100%;border-radius:14px;background:#000;max-height:75vh;object-fit:contain}
+.media audio{width:100%}
+.frame{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2)}
+.frame iframe{display:block;width:100%;height:min(70vh,560px);border:0}
+.frame.r169 iframe{height:auto;aspect-ratio:16/9}
+.filecard{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2)}
+.filecard .ext{font-family:var(--f-mono);font-weight:600;font-size:13px;padding:6px 10px;border-radius:8px;background:var(--surface);border:1px solid var(--line)}
+.loading{padding:30px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.like[aria-pressed="true"]{background:var(--danger);border-color:var(--danger);color:#fff}
+.comments{display:grid;gap:10px}
+.cmt{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:10px;align-items:start}
+.av{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:14px;color:#fff;background:var(--eco,var(--accent))}
+.cmt .bubble{background:var(--surface-2);border-radius:4px 14px 14px 14px;padding:8px 12px}
+.cmt .bubble p{white-space:pre-wrap;word-wrap:break-word}
+.cmt small{color:var(--muted);font-size:12px}
+.icon-btn{border:0;background:none;color:var(--muted);cursor:pointer;padding:4px;border-radius:8px}
+.icon-btn:hover{color:var(--danger);background:var(--danger-bg)}
+
+/* panel profe */
+.panel{background:var(--surface);border:2px solid var(--ochre);border-radius:20px;padding:20px;display:grid;gap:18px;margin-top:18px}
+.panel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:18px}
+.pbox{display:grid;gap:10px;align-content:start}
+.pbox h3{font-size:18px}
+.plist{display:grid;gap:6px;max-height:340px;overflow:auto;padding-right:4px}
+.prow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;background:var(--surface-2);font-size:14px}
+.prow .t{min-width:0}
+.prow .t b,.prow .t span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.switch{display:flex;align-items:center;gap:10px;font-weight:600;cursor:pointer}
+.switch input{width:44px;height:24px;accent-color:var(--accent)}
+
+/* avisos */
+.toasts{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:grid;gap:8px;z-index:100;width:min(420px,calc(100vw - 32px))}
+.toast{background:var(--ink);color:var(--bg);padding:12px 16px;border-radius:14px;font-weight:600;box-shadow:0 10px 30px -10px var(--shadow);animation:pop .25s ease}
+.toast.bad{background:var(--danger);color:#fff}
+
+footer{padding-block:30px 50px;color:var(--muted);font-size:14px;border-top:1px solid var(--line);margin-top:30px}
+
+@media (max-width:760px){
+  .game{grid-template-columns:1fr}
+  .hero .wrap{grid-template-columns:1fr;padding-block:30px 24px}
+  .grid2{grid-template-columns:1fr}
+  .who .nm-full{display:none}
+  .logo span{display:none}
+}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--accent)"/><path d="M4 20c4-3 7-3 10-1s7 2 14-2M5 13c4-2 7-2 10 0s7 1 12-2" fill="none" stroke="var(--accent-ink)" stroke-width="2" stroke-linecap="round"/></svg>
+      <span>Muro de Ecorregiones</span>
+    </div>
+    <span class="spacer"></span>
+    <span class="dot-net" id="net" title="Conectando…"></span>
+    <div class="who" id="who"></div>
+  </div>
+</header>
+
+<section class="hero">
+  <canvas id="topo" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <div>
+      <span class="eyebrow">Geografía · Ecorregiones de Argentina</span>
+      <h1>Muro de Ecorregiones</h1>
+      <p class="rot">Hoy viajamos a <span id="rotWord">la Puna</span></p>
+      <p class="lead">Subí tu presentación sobre una ecorregión y mirá los trabajos de todo el curso. Podés cargar fotos, videos, PDF, PowerPoint o links de Canva, Google Slides y YouTube.</p>
+      <div class="actions" style="margin-top:20px">
+        <button class="btn accent" id="newBtn" type="button"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Publicar mi trabajo</button>
+        <button class="btn ghost" id="panelBtn" type="button" hidden>Panel de la profesora</button>
+      </div>
+    </div>
+    <div class="stats" aria-live="polite">
+      <div class="stat"><span>Trabajos publicados</span><b id="stPosts">0</b></div>
+      <div class="stat"><span>Estudiantes que publicaron</span><b id="stPeople">0</b></div>
+      <div class="stat"><span>Comentarios</span><b id="stCm">0</b></div>
+      <div class="stat"><span>Me gusta</span><b id="stLikes">0</b></div>
+    </div>
+  </div>
+</section>
+
+<div class="ticker" aria-label="Actividad reciente"><span class="live"><i></i>En vivo</span><div class="track" id="ticker"></div></div>
+
+<main class="wrap">
+  <section id="panel" class="panel" hidden aria-label="Panel de la profesora"></section>
+
+
+  <section class="section">
+    <div class="sec-head"><h2>¿De qué ecorregión hablo?</h2><div class="gscore"><span id="gPts">Aciertos: 0</span><span id="gStreak">Racha: 0</span></div></div>
+    <div class="game">
+      <div class="clue" id="clue">
+        <span class="eyebrow">Pista</span>
+        <q id="clueText"></q>
+        <p class="muted" id="clueFb" aria-live="polite" style="font-weight:700">Elegí una respuesta.</p>
+        <div><button class="btn ghost sm" type="button" id="clueNext">Otra pista</button></div>
+      </div>
+      <div class="opts" id="opts"></div>
+    </div>
+  </section>
+
+  <section class="section" style="padding-top:6px">
+    <div class="sec-head"><h2 id="wallTitle">Todos los trabajos</h2></div>
+    <div class="tools">
+      <input class="input" id="q" type="search" placeholder="Buscar por título, nombre o tema" aria-label="Buscar">
+      <select class="input" id="fCourse" aria-label="Filtrar por curso"><option value="">Todos los cursos</option></select>
+      <select class="input" id="fOrder" aria-label="Ordenar"><option value="new">Más recientes</option><option value="likes">Más gustados</option><option value="old">Más antiguos</option></select>
+    </div>
+    <div id="banners"></div>
+    <div class="wall" id="wall"></div>
+    <div class="empty" id="empty" hidden></div>
+  </section>
+</main>
+
+<footer><div class="wrap" style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px 20px">
+  <span>Muro de Ecorregiones · Geografía. Lo que se publica acá lo ve todo el curso.</span>
+  <span>© <span id="year">2026</span> Nikos Ayala. Todos los derechos reservados.</span>
+</div></footer>
+
+<!-- INGRESO -->
+<dialog id="dLogin" aria-labelledby="loginTitle">
+  <form class="dlg" id="loginForm" method="dialog">
+    <div class="dlg-head"><h2 id="loginTitle">Iniciar sesión</h2><button class="x" type="button" data-close aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="tabs" role="tablist">
+      <button type="button" role="tab" id="tabStu" aria-selected="true">Estudiante</button>
+      <button type="button" role="tab" id="tabProf" aria-selected="false">Profesora</button>
+    </div>
+    <div id="stuFields" class="dlg" style="padding:0">
+      <div class="field"><label for="lName">Nombre y apellido</label><input class="input" id="lName" autocomplete="name" maxlength="50"></div>
+      <div class="field"><label for="lCourse">Curso</label><input class="input" id="lCourse" list="courses" placeholder="Ej: 2° A" maxlength="20">
+        <datalist id="courses"><option value="1° A"><option value="1° B"><option value="2° A"><option value="2° B"><option value="3° A"><option value="3° B"><option value="4° A"><option value="4° B"><option value="5° A"><option value="5° B"></datalist></div>
+      <div class="field"><label for="lPass">Contraseña</label><input class="input" id="lPass" type="password" autocomplete="current-password" maxlength="60">
+        <small>La primera vez que entrás se crea tu cuenta con esta contraseña. No uses la misma que en otras páginas.</small></div>
+    </div>
+    <div id="profFields" class="dlg" style="padding:0" hidden>
+      <div class="field"><label for="pName">Tu nombre</label><input class="input" id="pName" placeholder="Ej: Prof. García" maxlength="50"></div>
+      <div class="field"><label for="pPass">Contraseña de profesor</label><input class="input" id="pPass" type="password" autocomplete="off" maxlength="60"></div>
+    </div>
+    <p class="err" id="loginErr" aria-live="polite"></p>
+    <button class="btn accent" type="submit" id="loginGo">Entrar</button>
+  </form>
+</dialog>
+
+<!-- PUBLICAR / EDITAR -->
+<dialog id="dPost" aria-labelledby="postTitle">
+  <form class="dlg" id="postForm">
+    <div class="dlg-head"><h2 id="postTitle">Publicar mi trabajo</h2><button class="x" type="button" data-close aria-label="Cerrar"><svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="field"><label for="fTitle">Título</label><input class="input" id="fTitle" required maxlength="90" placeholder="Ej: La Puna, el desierto de altura"></div>
+    <div class="field"><label for="fEco">Ecorregión</label><input class="input" id="fEco" list="ecoList" required maxlength="60" placeholder="Escribí o elegí la ecorregión" autocomplete="off"><datalist id="ecoList"></datalist></div>
+    <div class="field"><label for="fDesc">Descripción</label><textarea class="input" id="fDesc" maxlength="3000" placeholder="Contá de qué se trata: clima, flora, fauna, actividades humanas, problemas ambientales…"></textarea></div>
+    <div class="field">
+      <label>Archivos</label>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Elegir archivos">
+        <svg class="ico" viewBox="0 0 24 24" style="width:30px;height:30px"><path d="M12 16V4M7 9l5-5 5 5M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+        <b>Arrastrá archivos acá o tocá para elegir</b>
+        <small class="muted">Fotos, PDF, PowerPoint, Word, videos cortos, audios. Hasta 15 MB por archivo.</small>
+      </div>
+      <input type="file" id="fFiles" multiple hidden>
+    </div>
+    <div class="field">
+      <label for="fLink">Links</label>
+      <div class="linkrow"><input class="input" id="fLink" type="url" placeholder="Pegá un link de Canva, Google Slides, YouTube o Drive"><button class="btn ghost sm" type="button" id="addLink">Agregar</button></div>
+      <small>Para videos largos o presentaciones pesadas, subilos a YouTube, Drive o Canva y pegá el link: se ven igual en el muro.</small>
+    </div>
+    <div class="items" id="items"></div>
+    <div id="upWrap" hidden><div class="progress"><i id="upBar"></i></div><small class="muted" id="upTxt"></small></div>
+    <p class="err" id="postErr" aria-live="polite"></p>
+    <button class="btn accent" type="submit" id="postGo">Publicar en el muro</button>
+  </form>
+</dialog>
+
+<!-- VER TRABAJO -->
+<dialog id="dView" class="wide" aria-label="Trabajo"><div class="dlg" id="view"></div></dialog>
+
+<!-- CONFIRMAR -->
+<dialog id="dAsk"><div class="dlg">
+  <h2 id="askTitle" style="font-size:22px"></h2><p id="askText"></p>
+  <div class="actions" style="justify-content:flex-end"><button class="btn ghost" id="askNo" type="button">Cancelar</button><button class="btn danger" id="askYes" type="button">Sí, borrar</button></div>
+</div></dialog>
+
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+/* ===== Configuración de Firebase ===== */
+const FIREBASE = {
+  databaseURL: "https://geografia-e784c-default-rtdb.firebaseio.com",
+  projectId: "geografia-e784c"
+};
+const SALT = 'muro-ecorregiones';
+// hash de la contraseña de profesor (no se guarda la contraseña en texto)
+const PROF_HASH = '60cfc0765f4e59ec3e9f0be6f40d6af4bbc635adc015c7ace5475da53d8d567b';
+const MAX_FILE = 15*1024*1024, MAX_POST = 40*1024*1024, CHUNK = 700000;
+
+const ECOS = [
+  {id:'altos-andes',n:'Altos Andes',d:'Cumbres heladas, vientos y vicuñas',c:'#6b7c93'},
+  {id:'puna',n:'Puna',d:'Altiplano seco y salares',c:'#b07a4f'},
+  {id:'monte-sierras',n:'Monte de Sierras y Bolsones',d:'Valles áridos y cardones',c:'#b5653a'},
+  {id:'yungas',n:'Selva de las Yungas',d:'Selva de montaña entre nubes',c:'#2f7d5b'},
+  {id:'chaco-seco',n:'Chaco Seco',d:'Quebrachos y mucho calor',c:'#a8863a'},
+  {id:'chaco-humedo',n:'Chaco Húmedo',d:'Bosques, esteros y palmares',c:'#5f8a3a'},
+  {id:'paranaense',n:'Selva Paranaense',d:'Selva misionera y cataratas',c:'#1f6b45'},
+  {id:'ibera',n:'Esteros del Iberá',d:'Humedales, yacarés y carpinchos',c:'#3b8a8a'},
+  {id:'campos-malezales',n:'Campos y Malezales',d:'Pastizales húmedos',c:'#7a9a3f'},
+  {id:'delta',n:'Delta e Islas del Paraná',d:'Islas, juncales y ríos',c:'#4a7fa0'},
+  {id:'espinal',n:'Espinal',d:'Algarrobos, ñandubay y caldén',c:'#8a7a3c'},
+  {id:'pampa',n:'Pampa',d:'Pastizales y agricultura',c:'#8f9b34'},
+  {id:'monte-llanuras',n:'Monte de Llanuras y Mesetas',d:'Jarillas y arbustos',c:'#a0704a'},
+  {id:'estepa',n:'Estepa Patagónica',d:'Viento, coirones y guanacos',c:'#9c8a6a'},
+  {id:'bosques-patagonicos',n:'Bosques Patagónicos',d:'Lengas, coihues y arrayanes',c:'#3d6b4a'},
+  {id:'atlantico-sur',n:'Islas del Atlántico Sur',d:'Islas, turba y aves marinas',c:'#5a7a8a'},
+  {id:'mar',n:'Mar Argentino',d:'Ballenas y plataforma continental',c:'#2d5f8f'},
+  {id:'antartida',n:'Antártida Argentina',d:'Hielo, pingüinos y focas',c:'#6f9fc0'}
+];
+const ECO = Object.fromEntries(ECOS.map(e=>[e.id,e]));
+
+/* ===== utilidades ===== */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const slug=s=>String(s).normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ICON={
+  heart:'<svg class="ico" viewBox="0 0 24 24"><path d="M12 20s-7-4.5-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.5-7 10-7 10z"/></svg>',
+  chat:'<svg class="ico" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z"/></svg>',
+  clip:'<svg class="ico" viewBox="0 0 24 24"><path d="M20 11l-8 8a5 5 0 0 1-7-7l8-8a3.5 3.5 0 0 1 5 5l-8 8a2 2 0 0 1-3-3l7-7"/></svg>',
+  pin:'<svg class="ico" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 3 3H7l3-3zM12 13v7"/></svg>',
+  trash:'<svg class="ico" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+  edit:'<svg class="ico" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4"/></svg>',
+  play:'<svg class="ico" viewBox="0 0 24 24" style="width:26px;height:26px;fill:currentColor;stroke:none"><path d="M8 5v14l11-7z"/></svg>',
+  close:'<svg class="ico" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+  down:'<svg class="ico" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M5 20h14"/></svg>',
+  full:'<svg class="ico" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>'
+};
+const rtf=new Intl.RelativeTimeFormat('es',{numeric:'auto'});
+function ago(ts){
+  const s=(ts-Date.now())/1000,a=Math.abs(s);
+  if(a<60)return 'recién';
+  if(a<3600)return rtf.format(Math.round(s/60),'minute');
+  if(a<86400)return rtf.format(Math.round(s/3600),'hour');
+  if(a<86400*30)return rtf.format(Math.round(s/86400),'day');
+  return new Date(ts).toLocaleDateString('es-AR');
+}
+const sizeTxt=b=>b<1024*1024?Math.max(1,Math.round(b/1024))+' KB':(b/1024/1024).toFixed(1).replace('.',',')+' MB';
+const extOf=n=>(String(n).split('.').pop()||'').toUpperCase().slice(0,5);
+function toast(msg,bad){const t=document.createElement('div');t.className='toast'+(bad?' bad':'');t.textContent=msg;$('#toasts').appendChild(t);setTimeout(()=>t.remove(),3800);}
+function ask(title,text,yes='Sí, borrar'){
+  return new Promise(res=>{const d=$('#dAsk');$('#askTitle').textContent=title;$('#askText').textContent=text;$('#askYes').textContent=yes;
+    const done=v=>{d.close();res(v);};$('#askYes').onclick=()=>done(true);$('#askNo').onclick=()=>done(false);d.oncancel=()=>res(false);d.showModal();});
+}
+const initials=n=>String(n).trim().split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+function ecoOf(v){
+  if(!v)return{n:'Sin ecorregión',c:'#7b8a80',d:''};
+  if(ECO[v])return ECO[v];
+  const s=slug(v),f=ECOS.find(e=>slug(e.n)===s);if(f)return f;
+  let h=0;for(const ch of s)h=(h*31+ch.charCodeAt(0))>>>0;
+  return{n:v,c:`hsl(${h%360} 40% 45%)`,d:''};
+}
+// guarda el id si es una ecorregión conocida; si no, el nombre tal cual lo escribieron
+const ecoValue=t=>{const s=slug(t),f=ECOS.find(e=>slug(e.n)===s||e.id===s);return f?f.id:t.trim().replace(/\s+/g,' ');};
+
+/* SHA-256 propio (funciona aunque la página se abra como archivo local) */
+function sha256(str){
+  const K=[],H0=[];let n=2,c=0;
+  const isP=x=>{for(let f=2;f*f<=x;f++)if(x%f===0)return false;return true;};
+  while(c<64){if(isP(n)){if(c<8)H0[c]=(Math.pow(n,1/2)*4294967296)|0;K[c]=(Math.pow(n,1/3)*4294967296)|0;c++;}n++;}
+  const ror=(x,k)=>(x>>>k)|(x<<(32-k));
+  const b=[...new TextEncoder().encode(str)],l=b.length*8;b.push(0x80);
+  while(b.length%64!==56)b.push(0);
+  for(let i=7;i>=0;i--)b.push(i>=4?0:(l>>>(i*8))&255);
+  let H=H0.slice();
+  for(let o=0;o<b.length;o+=64){
+    const w=[];
+    for(let i=0;i<16;i++)w[i]=(b[o+4*i]<<24)|(b[o+4*i+1]<<16)|(b[o+4*i+2]<<8)|b[o+4*i+3];
+    for(let i=16;i<64;i++){const x=w[i-15],y=w[i-2];w[i]=(w[i-16]+(ror(x,7)^ror(x,18)^(x>>>3))+w[i-7]+(ror(y,17)^ror(y,19)^(y>>>10)))|0;}
+    let[a,bb,cc,d,e,f,g,h]=H;
+    for(let i=0;i<64;i++){
+      const t1=(h+(ror(e,6)^ror(e,11)^ror(e,25))+((e&f)^(~e&g))+K[i]+w[i])|0;
+      const t2=((ror(a,2)^ror(a,13)^ror(a,22))+((a&bb)^(a&cc)^(bb&cc)))|0;
+      h=g;g=f;f=e;e=(d+t1)|0;d=cc;cc=bb;bb=a;a=(t1+t2)|0;
+    }
+    H=[a,bb,cc,d,e,f,g,h].map((v,i)=>(H[i]+v)|0);
+  }
+  return H.map(v=>(v>>>0).toString(16).padStart(8,'0')).join('');
+}
+
+/* ===== links que se pueden mostrar adentro del muro ===== */
+function linkInfo(url){
+  let u;try{u=new URL(url);}catch(e){return null;}
+  if(!/^https?:$/.test(u.protocol))return null;
+  const h=u.hostname.replace(/^www\./,'');
+  let m;
+  if(h==='youtu.be'&&(m=u.pathname.slice(1)))return{kind:'youtube',id:m,embed:`https://www.youtube.com/embed/${encodeURIComponent(m)}`};
+  if(h.endsWith('youtube.com')){
+    const id=u.searchParams.get('v')||(u.pathname.match(/\/(shorts|embed|live)\/([^/?]+)/)||[])[2];
+    if(id)return{kind:'youtube',id,embed:`https://www.youtube.com/embed/${encodeURIComponent(id)}`};
+  }
+  if(h==='docs.google.com'&&(m=u.pathname.match(/\/presentation\/d\/([^/]+)/)))return{kind:'slides',embed:`https://docs.google.com/presentation/d/${m[1]}/embed?start=false&loop=false`};
+  if(h==='docs.google.com'&&(m=u.pathname.match(/\/(document|spreadsheets)\/d\/([^/]+)/)))return{kind:'gdoc',embed:`https://docs.google.com/${m[1]}/d/${m[2]}/preview`};
+  if(h==='drive.google.com'&&(m=u.pathname.match(/\/file\/d\/([^/]+)/)))return{kind:'drive',embed:`https://drive.google.com/file/d/${m[1]}/preview`};
+  if(h.endsWith('canva.com')&&/\/design\//.test(u.pathname)){
+    const base=u.origin+u.pathname.replace(/\/(edit|watch)$/,'/view');
+    return{kind:'canva',embed:(base.endsWith('/view')?base:base.replace(/\/$/,'')+'/view')+'?embed'};
+  }
+  return{kind:'web'};
+}
+const LINK_NAME={youtube:'Video de YouTube',slides:'Presentación de Google',gdoc:'Documento de Google',drive:'Archivo de Drive',canva:'Diseño de Canva',web:'Enlace'};
+
+/* ===== portada generada: curvas de nivel con el color de la ecorregión ===== */
+function coverSVG(ecoId,label,seed){
+  const e=ecoOf(ecoId);let r=0;for(const ch of String(seed))r=(r*31+ch.charCodeAt(0))>>>0;
+  const rnd=()=>{r=(r*1103515245+12345)>>>0;return r/4294967296;};
+  let paths='';
+  const cx=60+rnd()*280,cy=40+rnd()*140;
+  for(let k=1;k<=9;k++){
+    let d='';const R=k*26,ph=rnd()*6;
+    for(let i=0;i<=48;i++){const t=i/48*Math.PI*2,rr=R*(1+.18*Math.sin(3*t+ph)+.08*Math.sin(5*t+k));
+      d+=(i?'L':'M')+(cx+Math.cos(t)*rr*1.3).toFixed(1)+' '+(cy+Math.sin(t)*rr).toFixed(1);}
+    paths+=`<path d="${d}Z" fill="none" stroke="#fff" stroke-opacity="${(.12+.04*(k%3)).toFixed(2)}" stroke-width="1.4"/>`;
+  }
+  return `<svg viewBox="0 0 400 220" role="img" aria-label="${esc(e.n)}"><rect width="400" height="220" fill="${e.c}"/>${paths}
+    <text x="22" y="196" fill="#fff" font-family="IBM Plex Mono,monospace" font-weight="600" font-size="15" letter-spacing="1.5">${esc(label)}</text></svg>`;
+}
+
+/* ===== curvas de nivel animadas en la portada ===== */
+(function topo(){
+  const cv=$('#topo'),ctx=cv.getContext('2d');let w,h,t=0;
+  const cols=['#2f7d5b','#b07a4f','#4a7fa0','#a8863a','#6b7c93','#3b8a8a'];
+  function size(){const r=cv.getBoundingClientRect(),dpr=Math.min(2,devicePixelRatio||1);w=r.width;h=r.height;cv.width=w*dpr;cv.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  function draw(){
+    ctx.clearRect(0,0,w,h);
+    const n=16;
+    for(let i=0;i<n;i++){
+      ctx.beginPath();const base=(i+.5)/n*h*1.15-h*.05;
+      for(let x=-10;x<=w+10;x+=8){
+        const y=base+Math.sin(x*.006+i*.5+t*.4)*22+Math.sin(x*.013-i*.8+t*.25)*12+Math.sin(x*.002+i)*30;
+        x<0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle=cols[i%cols.length];ctx.globalAlpha=.22;ctx.lineWidth=i%4===0?2.2:1.1;ctx.stroke();
+    }
+    // semillas que flotan
+    seeds.forEach(sd=>{sd.y-=sd.v;sd.x+=Math.sin(t*3+sd.p)*.3;if(sd.y<-10){sd.y=h+10;sd.x=Math.random()*w;}
+      ctx.globalAlpha=sd.a;ctx.fillStyle=sd.c;ctx.beginPath();ctx.ellipse(sd.x,sd.y,sd.r,sd.r*.55,t+sd.p,0,Math.PI*2);ctx.fill();});
+    ctx.globalAlpha=1;
+  }
+  const seeds=Array.from({length:38},(_,i)=>({x:Math.random()*1400,y:Math.random()*700,v:.15+Math.random()*.45,r:1.5+Math.random()*3,p:Math.random()*6,a:.25+Math.random()*.35,c:cols[i%cols.length]}));
+  size();draw();addEventListener('resize',()=>{size();draw();});
+  if(!reduceMotion){const loop=()=>{t+=.006;draw();requestAnimationFrame(loop);};requestAnimationFrame(loop);}
+})();
+
+/* ===== palabra que va cambiando en la portada ===== */
+(function rotate(){
+  const el=$('#rotWord');let i=0;
+  const art=n=>/^(Altos|Esteros|Bosques|Campos)/.test(n)?'los ':/^Islas/.test(n)?'las ':/^(Monte|Chaco|Delta|Espinal|Mar)/.test(n)?'el ':'la ';
+  const show=()=>{const e=ECOS[i];el.textContent=art(e.n)+e.n;el.parentElement.style.setProperty('--rc',e.c);
+    if(!reduceMotion&&el.animate)el.animate([{transform:'translateY(14px)',opacity:0},{transform:'none',opacity:1}],{duration:450,easing:'cubic-bezier(.2,.8,.3,1)'});};
+  show();if(!reduceMotion)setInterval(()=>{i=(i+1)%ECOS.length;show();},2600);
+})();
+$('#year').textContent=Math.max(2026,new Date().getFullYear());
+
+/* ===== hojitas que vuelan (al publicar, al dar me gusta y al acertar) ===== */
+function leafBurst(x,y,n){
+  if(reduceMotion)return;
+  const cols=['#4caf7d','#8fbf4a','#e2ad52','#3b8a8a','#c9763f'];
+  for(let i=0;i<n;i++){
+    const d=document.createElement('span');d.className='leaf';d.style.left=x+'px';d.style.top=y+'px';d.style.background=cols[i%cols.length];document.body.appendChild(d);
+    const a=Math.random()*Math.PI*2,dist=50+Math.random()*(n>20?260:110);
+    d.animate([{transform:'translate(-50%,-50%) rotate(0)',opacity:1},{transform:`translate(${Math.cos(a)*dist}px,${Math.sin(a)*dist+60}px) rotate(${Math.random()*540-270}deg)`,opacity:0}],
+      {duration:900+Math.random()*600,easing:'cubic-bezier(.2,.7,.3,1)'}).onfinish=()=>d.remove();
+  }
+}
+
+/* ===== actividad en vivo ===== */
+function renderTicker(){
+  const ev=[];
+  Object.entries(S.posts).forEach(([id,p])=>ev.push({t:p.created,c:ecoOf(p.eco).c,h:`<b>${esc(p.author)}</b> (${esc(p.course)}) publicó “${esc(p.title)}”`}));
+  Object.entries(S.comments).forEach(([pid,cs])=>Object.values(cs||{}).forEach(c=>{const p=S.posts[pid];if(p)ev.push({t:c.created,c:ecoOf(p.eco).c,h:`<b>${esc(c.author)}</b> comentó en “${esc(p.title)}”`});}));
+  ev.sort((a,b)=>b.t-a.t);
+  const items=ev.slice(0,14).map(e=>`<span style="--eco:${e.c}">${e.h} <small class="muted">${ago(e.t)}</small></span>`);
+  if(!items.length)items.push('<span>Todavía no hay movimiento. ¡Sé el primero en publicar tu trabajo!</span>','<span>Subí fotos, videos, PDF o tu presentación de Canva.</span>','<span>Jugá a adivinar ecorregiones más abajo.</span>');
+  const tr=$('#ticker'),html=items.join('');
+  tr.innerHTML=html+html; // duplicado para que el desplazamiento no tenga cortes
+  tr.style.setProperty('--dur',Math.max(25,items.length*7)+'s');
+}
+
+/* ===== juego: ¿de qué ecorregión hablo? ===== */
+const CLUES=[
+  ['altos-andes','Acá está el Aconcagua, la montaña más alta de América, con casi 7.000 metros.'],
+  ['puna','Estoy a más de 3.000 metros de altura, tengo salares enormes y me recorren llamas y vicuñas.'],
+  ['monte-sierras','Soy árida, con valles entre sierras. Mis cardones parecen candelabros gigantes.'],
+  ['yungas','Soy una selva de montaña en Salta, Jujuy y Tucumán. Casi siempre estoy cubierta de nubes.'],
+  ['chaco-seco','Tengo bosques de quebracho colorado, un árbol de madera durísima, y veranos muy calurosos.'],
+  ['paranaense','Soy la selva de Misiones. En mí están las Cataratas del Iguazú.'],
+  ['ibera','Soy uno de los humedales más grandes de Sudamérica. Viven yacarés, carpinchos y ciervos de los pantanos.'],
+  ['delta','Mis islas se forman con el barro y la arena que trae el río. Tengo juncales y muchos arroyos.'],
+  ['espinal','Rodeo a la Pampa como un arco. Tengo bosques de algarrobo, ñandubay y caldén.'],
+  ['pampa','Soy llana y mis suelos son muy fértiles. Casi todo mi pastizal se usa hoy para agricultura y ganadería.'],
+  ['estepa','El viento sopla fuerte casi todo el año. Hay pocos árboles, muchos coirones, guanacos y choiques.'],
+  ['bosques-patagonicos','Tengo lagos, montañas y árboles como la lenga, el coihue y el arrayán de corteza color canela.'],
+  ['mar','Todos los años llegan ballenas francas australes a la Península Valdés.'],
+  ['antartida','Casi todo está cubierto de hielo. Hay pingüinos, focas y bases científicas argentinas.']
+];
+const GM={pts:0,streak:0,last:-1,timer:null};
+function newClue(){
+  clearTimeout(GM.timer);
+  let i;do{i=Math.floor(Math.random()*CLUES.length);}while(i===GM.last);GM.last=i;
+  const[id,text]=CLUES[i],e=ECO[id];
+  const pool=CLUES.map(c=>c[0]).filter(x=>x!==id).sort(()=>Math.random()-.5).slice(0,2);
+  const opts=[id,...pool].sort(()=>Math.random()-.5);
+  $('#clueText').textContent='“'+text+'”';$('#clue').style.setProperty('--gc','var(--accent)');
+  const fb=$('#clueFb');fb.textContent='Elegí una respuesta.';fb.style.color='';
+  $('#opts').innerHTML=opts.map(o=>`<button class="opt" type="button" data-o="${o}" style="--eco:${ECO[o].c}">${esc(ECO[o].n)}</button>`).join('');
+  $('#opts').onclick=ev=>{
+    const b=ev.target.closest('[data-o]');if(!b||b.disabled)return;
+    const ok=b.dataset.o===id;
+    $('#opts').querySelectorAll('.opt').forEach(x=>{x.disabled=true;if(x.dataset.o===id)x.classList.add('good');});
+    if(!ok)b.classList.add('bad');
+    GM.pts+=ok?1:0;GM.streak=ok?GM.streak+1:0;
+    $('#gPts').textContent='Aciertos: '+GM.pts;$('#gStreak').textContent='Racha: '+GM.streak;
+    $('#clue').style.setProperty('--gc',e.c);
+    fb.textContent=ok?`¡Sí! Es ${e.n}.`:`No, es ${e.n}.`;fb.style.color=ok?'var(--ok)':'var(--danger)';
+    if(ok){const r=b.getBoundingClientRect();leafBurst(r.left+r.width/2,r.top+r.height/2,16);}
+    GM.timer=setTimeout(newClue,2800);
+  };
+}
+$('#clueNext').onclick=newClue;newClue();
+
+/* ===== estado ===== */
+let me=null;
+try{me=JSON.parse(localStorage.getItem('muro-eco-sesion'));}catch(e){}
+const S={err:'',posts:{},comments:{},config:{},eco:'',q:'',course:'',order:'new',openId:null,panel:false};
+let db=null;
+
+function saveMe(){try{me?localStorage.setItem('muro-eco-sesion',JSON.stringify(me)):localStorage.removeItem('muro-eco-sesion');}catch(e){}}
+const isProf=()=>me&&me.role==='prof';
+const canEdit=p=>me&&(isProf()||p.userKey===me.key);
+
+function renderWho(){
+  const w=$('#who');
+  if(!me){w.innerHTML=`<button class="btn sm" id="loginBtn" type="button">Iniciar sesión</button>`;$('#loginBtn').onclick=()=>openLogin();}
+  else w.innerHTML=`<span class="role ${isProf()?'prof':''}">${isProf()?'Profesora':esc(me.course)}</span><b class="nm-full">${esc(me.name)}</b><button class="btn ghost sm" id="outBtn" type="button">Salir</button>`,
+    $('#outBtn').onclick=()=>{me=null;saveMe();S.panel=false;renderAll();toast('Cerraste sesión.');};
+  $('#panelBtn').hidden=!isProf();
+  $('#panelBtn').textContent=S.panel?'Cerrar panel':'Panel de la profesora';
+}
+
+/* ===== ingreso ===== */
+let loginMode='stu',afterLogin=null;
+function openLogin(then){afterLogin=then||null;$('#loginErr').textContent='';$('#dLogin').showModal();}
+function setLoginMode(m){loginMode=m;$('#tabStu').setAttribute('aria-selected',m==='stu');$('#tabProf').setAttribute('aria-selected',m==='prof');$('#stuFields').hidden=m!=='stu';$('#profFields').hidden=m!=='prof';$('#loginErr').textContent='';}
+$('#tabStu').onclick=()=>setLoginMode('stu');$('#tabProf').onclick=()=>setLoginMode('prof');
+$('#loginForm').addEventListener('submit',async e=>{
+  e.preventDefault();const err=$('#loginErr');err.textContent='';
+  if(loginMode==='prof'){
+    const name=$('#pName').value.trim()||'Profesora';
+    if(sha256(SALT+'|profe|'+$('#pPass').value)!==PROF_HASH){err.textContent='La contraseña de profesor no es correcta.';return;}
+    me={key:'prof',name,course:'Profesora',role:'prof'};saveMe();$('#pPass').value='';
+  }else{
+    const name=$('#lName').value.trim().replace(/\s+/g,' '),course=$('#lCourse').value.trim().toUpperCase().replace(/\s+/g,' '),pass=$('#lPass').value;
+    if(name.length<3){err.textContent='Escribí tu nombre y apellido.';return;}
+    if(!course){err.textContent='Escribí tu curso.';return;}
+    if(pass.length<4){err.textContent='La contraseña tiene que tener al menos 4 caracteres.';return;}
+    const key=slug(name)+'__'+slug(course);
+    if(!slug(name)){err.textContent='Usá letras en tu nombre.';return;}
+    if(!db){err.textContent='No hay conexión con la base de datos.';return;}
+    $('#loginGo').disabled=true;
+    try{
+      const ref=db.ref('muro/users/'+key),snap=await ref.get(),hash=sha256(SALT+'|'+key+'|'+pass);
+      if(snap.exists()){
+        if(snap.val().hash!==hash){err.textContent='Contraseña incorrecta para ese nombre y curso. Si te la olvidaste, pedile a la profesora que la reinicie.';return;}
+        toast('¡Hola de nuevo, '+name.split(' ')[0]+'!');
+      }else{
+        await ref.set({name,course,hash,created:Date.now()});
+        toast('Cuenta creada. ¡Bienvenido/a, '+name.split(' ')[0]+'!');
+      }
+      me={key,name,course,role:'stu'};saveMe();$('#lPass').value='';
+    }catch(ex){err.textContent='No se pudo conectar: '+(ex.message||ex);return;}
+    finally{$('#loginGo').disabled=false;}
+  }
+  $('#dLogin').close();renderAll();
+  if(afterLogin){const f=afterLogin;afterLogin=null;f();}
+});
+document.querySelectorAll('[data-close]').forEach(b=>b.addEventListener('click',()=>b.closest('dialog').close()));
+
+/* ===== ecorregiones ===== */
+function counts(){const c={};Object.values(S.posts).forEach(p=>c[p.eco]=(c[p.eco]||0)+1);return c;}
+
+/* ===== muro ===== */
+function coverOf(p,id){
+  const files=Object.values(p.files||{}),links=p.links||[];
+  const img=files.find(f=>f.thumb);
+  if(img)return `<img src="${img.thumb}" alt="" loading="lazy">`;
+  const yt=links.map(l=>linkInfo(l)).find(l=>l&&l.kind==='youtube');
+  if(yt)return `<img src="https://img.youtube.com/vi/${encodeURIComponent(yt.id)}/hqdefault.jpg" alt="" loading="lazy"><span class="play"><span>${ICON.play}</span></span>`;
+  let label=ecoOf(p.eco).n.toUpperCase();
+  const f=files[0];
+  if(f)label=(f.type||'').startsWith('video/')?'VIDEO':extOf(f.name)+' · '+label;
+  else if(links[0]){const li=linkInfo(links[0]);if(li)label=LINK_NAME[li.kind].toUpperCase();}
+  return coverSVG(p.eco,label.slice(0,38),id);
+}
+function filtered(){
+  const q=slug(S.q);
+  let arr=Object.entries(S.posts).filter(([id,p])=>(!S.eco||p.eco===S.eco)&&(!S.course||p.course===S.course)&&(!q||slug([p.title,p.author,p.desc,ecoOf(p.eco).n,p.course].join(' ')).includes(q)));
+  const lk=p=>Object.keys(p.likes||{}).length;
+  arr.sort(([,a],[,b])=>(b.pinned?1:0)-(a.pinned?1:0)||(S.order==='likes'?lk(b)-lk(a):0)||(S.order==='old'?a.created-b.created:b.created-a.created));
+  return arr;
+}
+function renderWall(){
+  const arr=filtered(),wall=$('#wall'),empty=$('#empty');
+  $('#wallTitle').textContent=S.eco?ecoOf(S.eco).n:'Todos los trabajos';
+  wall.innerHTML=arr.map(([id,p],i)=>{
+    const e=ecoOf(p.eco),nc=Object.keys(S.comments[id]||{}).length,nl=Object.keys(p.likes||{}).length,na=Object.keys(p.files||{}).length+(p.links||[]).length;
+    return `<article class="card ${p.pinned?'pinned':''}" style="--eco:${e.c};animation-delay:${Math.min(i,12)*40}ms">
+      <button class="cover" type="button" data-open="${id}" aria-label="Abrir ${esc(p.title)}">${coverOf(p,id)}</button>
+      <div class="card-body">
+        ${p.pinned?`<span class="pin">${ICON.pin} Destacado por la profe</span>`:''}
+        <span class="tag">${esc(e.n)}</span>
+        <h3><button type="button" data-open="${id}">${esc(p.title)}</button></h3>
+        <p class="by">${esc(p.author)} · ${esc(p.course)} · ${ago(p.created)}</p>
+        ${p.desc?`<p class="excerpt">${esc(p.desc)}</p>`:''}
+        <div class="meta"><span>${ICON.heart}${nl}</span><span>${ICON.chat}${nc}</span><span>${ICON.clip}${na}</span></div>
+      </div></article>`;
+  }).join('');
+  empty.hidden=arr.length>0;
+  if(!arr.length){
+    const any=Object.keys(S.posts).length;
+    empty.innerHTML=any?`<h3>No hay trabajos con ese filtro</h3><p class="muted">Probá con otra ecorregión, otro curso o borrá la búsqueda.</p>`
+      :`<h3>Todavía no hay trabajos</h3><p class="muted">Sé el primero en subir tu presentación sobre una ecorregión.</p><button class="btn accent" type="button" onclick="startPost()">Publicar mi trabajo</button>`;
+  }
+  // filtro de cursos
+  const courses=[...new Set(Object.values(S.posts).map(p=>p.course))].sort();
+  const sel=$('#fCourse'),cur=S.course;
+  sel.innerHTML='<option value="">Todos los cursos</option>'+courses.map(c=>`<option ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
+  // números de la portada
+  $('#stPosts').textContent=Object.keys(S.posts).length;
+  $('#stPeople').textContent=new Set(Object.values(S.posts).map(p=>p.userKey)).size;
+  $('#stCm').textContent=Object.values(S.comments).reduce((n,c)=>n+Object.keys(c||{}).length,0);
+  $('#stLikes').textContent=Object.values(S.posts).reduce((n,p)=>n+Object.keys(p.likes||{}).length,0);
+  renderTicker();
+}
+$('#wall').addEventListener('click',e=>{const b=e.target.closest('[data-open]');if(b)openView(b.dataset.open);});
+$('#q').addEventListener('input',e=>{S.q=e.target.value;renderWall();});
+$('#fCourse').addEventListener('change',e=>{S.course=e.target.value;renderWall();});
+$('#fOrder').addEventListener('change',e=>{S.order=e.target.value;renderWall();});
+
+function renderBanners(){const msg=S.err;
+  let h='';
+  if(msg)h+=`<div class="banner warn">${esc(msg)}</div>`;
+  if(S.config.closed)h+=`<div class="banner info">${ICON.pin} La profesora cerró las publicaciones nuevas. Igual podés mirar y comentar.</div>`;
+  $('#banners').innerHTML=h;
+}
+
+/* ===== publicar / editar ===== */
+let draft=null; // {editId, files:[{file,name,type,size,thumb,data}], links:[], removeFiles:[]}
+function startPost(editId){
+  if(!me){openLogin(()=>startPost(editId));return;}
+  if(!editId&&S.config.closed&&!isProf()){toast('La profesora cerró las publicaciones nuevas.',true);return;}
+  const p=editId?S.posts[editId]:null;
+  draft={editId:editId||null,files:[],links:p?[...(p.links||[])]:[],keep:p?{...(p.files||{})}:{}};
+  $('#postTitle').textContent=p?'Editar trabajo':'Publicar mi trabajo';
+  $('#postGo').textContent=p?'Guardar cambios':'Publicar en el muro';
+  $('#fTitle').value=p?p.title:'';$('#fDesc').value=p?p.desc||'':'';
+  $('#ecoList').innerHTML=ECOS.map(e=>`<option value="${esc(e.n)}">`).join('');
+  $('#fEco').value=p?ecoOf(p.eco).n:'';
+  $('#postErr').textContent='';$('#upWrap').hidden=true;$('#fLink').value='';
+  renderItems();$('#dView').open&&$('#dView').close();$('#dPost').showModal();
+}
+$('#newBtn').onclick=()=>startPost();
+function totalSize(){return draft.files.reduce((s,f)=>s+f.size,0)+Object.values(draft.keep).reduce((s,f)=>s+(f.size||0),0);}
+function renderItems(){
+  const rows=[];
+  Object.entries(draft.keep).forEach(([fid,f])=>rows.push(`<div class="item"><div class="thumb">${f.thumb?`<img src="${f.thumb}" alt="">`:esc(extOf(f.name))}</div><div><div class="nm">${esc(f.name)}</div><small>${sizeTxt(f.size||0)} · ya publicado</small></div><button class="icon-btn" type="button" data-rmkeep="${fid}" aria-label="Quitar ${esc(f.name)}">${ICON.close}</button></div>`));
+  draft.files.forEach((f,i)=>rows.push(`<div class="item"><div class="thumb">${f.thumb?`<img src="${f.thumb}" alt="">`:esc(extOf(f.name))}</div><div><div class="nm">${esc(f.name)}</div><small>${f.ready?sizeTxt(f.size):'Preparando…'}</small></div><button class="icon-btn" type="button" data-rmfile="${i}" aria-label="Quitar ${esc(f.name)}">${ICON.close}</button></div>`));
+  draft.links.forEach((l,i)=>{const li=linkInfo(l);rows.push(`<div class="item"><div class="thumb">${ICON.clip}</div><div><div class="nm">${esc(LINK_NAME[li?li.kind:'web'])}</div><small style="word-break:break-all">${esc(l)}</small></div><button class="icon-btn" type="button" data-rmlink="${i}" aria-label="Quitar link">${ICON.close}</button></div>`);});
+  $('#items').innerHTML=rows.join('');
+}
+$('#items').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.rmkeep)delete draft.keep[b.dataset.rmkeep];
+  if(b.dataset.rmfile!==undefined)draft.files.splice(+b.dataset.rmfile,1);
+  if(b.dataset.rmlink!==undefined)draft.links.splice(+b.dataset.rmlink,1);
+  renderItems();
+});
+$('#addLink').onclick=()=>{
+  const v=$('#fLink').value.trim();if(!v)return;
+  if(!linkInfo(v)){$('#postErr').textContent='Ese link no es válido. Tiene que empezar con https://';return;}
+  draft.links.push(v);$('#fLink').value='';$('#postErr').textContent='';renderItems();
+};
+$('#fLink').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#addLink').click();}});
+
+const readURL=f=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f);});
+function loadImg(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
+function shrink(img,max,q){const k=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),c=document.createElement('canvas');
+  c.width=Math.round(img.naturalWidth*k);c.height=Math.round(img.naturalHeight*k);const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);return c.toDataURL('image/jpeg',q);}
+async function addFiles(list){
+  for(const file of list){
+    const item={name:file.name,type:file.type||'application/octet-stream',size:file.size,ready:false};
+    if(!/^image\/(jpeg|png|webp|bmp)$/.test(file.type)&&file.size>MAX_FILE){
+      $('#postErr').textContent=`“${file.name}” pesa ${sizeTxt(file.size)}. El máximo es 15 MB: subilo a YouTube, Drive o Canva y pegá el link.`;continue;}
+    draft.files.push(item);renderItems();
+    try{
+      const url=await readURL(file);
+      if(/^image\/(jpeg|png|webp|bmp)$/.test(file.type)){
+        const img=await loadImg(url);
+        const full=shrink(img,1800,.85);item.thumb=shrink(img,520,.72);
+        item.data=full.split(',')[1];item.type='image/jpeg';item.name=file.name.replace(/\.\w+$/,'')+'.jpg';
+      }else{
+        item.data=url.split(',')[1]||'';
+        if(file.type==='image/gif'){const img=await loadImg(url);item.thumb=shrink(img,520,.72);}
+      }
+      item.size=Math.round(item.data.length*3/4);item.ready=true;
+      if(item.size>MAX_FILE){draft.files.splice(draft.files.indexOf(item),1);$('#postErr').textContent=`“${file.name}” es demasiado pesado.`;}
+    }catch(ex){draft.files.splice(draft.files.indexOf(item),1);$('#postErr').textContent=`No se pudo leer “${file.name}”.`;}
+    renderItems();
+  }
+}
+const drop=$('#drop');
+drop.onclick=()=>$('#fFiles').click();
+drop.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();$('#fFiles').click();}};
+$('#fFiles').onchange=e=>{addFiles([...e.target.files]);e.target.value='';};
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>addFiles([...e.dataTransfer.files]));
+
+$('#postForm').addEventListener('submit',async e=>{
+  e.preventDefault();const err=$('#postErr');err.textContent='';
+  const title=$('#fTitle').value.trim(),eco=ecoValue($('#fEco').value),desc=$('#fDesc').value.trim();
+  if(!title){err.textContent='Ponele un título a tu trabajo.';return;}
+  if(!eco){err.textContent='Escribí o elegí la ecorregión de tu trabajo.';return;}
+  if(draft.files.some(f=>!f.ready)){err.textContent='Esperá a que terminen de prepararse los archivos.';return;}
+  if(!draft.editId&&!draft.files.length&&!draft.links.length&&!desc){err.textContent='Agregá al menos un archivo, un link o una descripción.';return;}
+  if(totalSize()>MAX_POST){err.textContent='Entre todos los archivos superan los 40 MB. Sacá alguno o usá links.';return;}
+  const go=$('#postGo');go.disabled=true;$('#upWrap').hidden=false;
+  const totalChunks=draft.files.reduce((s,f)=>s+Math.max(1,Math.ceil(f.data.length/CHUNK)),0);let done=0;
+  const prog=()=>{$('#upBar').style.width=(totalChunks?done/totalChunks*100:100)+'%';$('#upTxt').textContent=totalChunks?`Subiendo archivos… ${Math.round(done/totalChunks*100)}%`:'Guardando…';};
+  prog();
+  try{
+    const id=draft.editId||db.ref('muro/posts').push().key,old=draft.editId?S.posts[id]:null;
+    const files={...draft.keep};
+    for(const f of draft.files){
+      const fid=db.ref('muro/files').push().key,n=Math.max(1,Math.ceil(f.data.length/CHUNK));
+      for(let i=0;i<n;i++){await db.ref(`muro/chunks/${fid}/${i}`).set(f.data.slice(i*CHUNK,(i+1)*CHUNK));done++;prog();}
+      await db.ref('muro/files/'+fid).set({name:f.name,type:f.type,size:f.size,chunks:n,post:id});
+      files[fid]={name:f.name,type:f.type,size:f.size,...(f.thumb?{thumb:f.thumb}:{})};
+    }
+    const upd={title,eco,desc,links:draft.links,files};
+    if(old){
+      // archivos que se quitaron al editar
+      const rm={};Object.keys(old.files||{}).forEach(fid=>{if(!files[fid]){rm['muro/files/'+fid]=null;rm['muro/chunks/'+fid]=null;}});
+      await db.ref('muro/posts/'+id).update({...upd,edited:Date.now(),...(isProf()&&old.userKey!==me.key?{editedByProf:true}:{})});
+      if(Object.keys(rm).length)await db.ref().update(rm);
+      toast('Cambios guardados.');
+    }else{
+      await db.ref('muro/posts/'+id).set({...upd,author:me.name,course:me.course,userKey:me.key,created:Date.now()});
+      toast('¡Tu trabajo ya está en el muro!');leafBurst(innerWidth/2,innerHeight/2,36);
+    }
+    $('#dPost').close();
+  }catch(ex){err.textContent='No se pudo publicar: '+(ex.message||ex);}
+  finally{go.disabled=false;}
+});
+
+/* ===== ver un trabajo ===== */
+const blobCache={};
+async function fileURL(fid,type){
+  if(blobCache[fid])return blobCache[fid];
+  const snap=await db.ref('muro/chunks/'+fid).get();const parts=snap.val();
+  if(!parts)throw new Error('El archivo ya no existe.');
+  const b64=(Array.isArray(parts)?parts:Object.keys(parts).sort((a,b)=>a-b).map(k=>parts[k])).join('');
+  const bin=atob(b64),arr=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
+  return blobCache[fid]=URL.createObjectURL(new Blob([arr],{type}));
+}
+function fullBtn(){return `<button class="btn ghost sm" type="button" data-full>${ICON.full}Pantalla completa</button>`;}
+function openView(id){S.openId=id;renderView(true);$('#dView').open||$('#dView').showModal();}
+$('#dView').addEventListener('close',()=>{S.openId=null;});
+function renderView(loadMedia){
+  const id=S.openId,p=S.posts[id];if(!id)return;
+  if(!p){$('#dView').close();return;}
+  const e=ecoOf(p.eco),likes=Object.keys(p.likes||{}),liked=me&&p.likes&&p.likes[me.key];
+  const cm=Object.entries(S.comments[id]||{}).sort(([,a],[,b])=>a.created-b.created);
+  const v=$('#view');v.style.setProperty('--eco',e.c);
+  const head=`<div class="dlg-head"><div class="viewer-head">
+      <span class="tag">${esc(e.n)}</span>
+      <h2>${esc(p.title)}</h2>
+      <p class="by">${esc(p.author)} · ${esc(p.course)} · ${ago(p.created)}${p.edited?' · editado'+(p.editedByProf?' por la profe':''):''}</p>
+    </div><button class="x" type="button" id="vClose" aria-label="Cerrar">${ICON.close}</button></div>`;
+  const tools=`<div class="actions">
+      <button class="btn sm ghost like" type="button" id="vLike" aria-pressed="${!!liked}">${ICON.heart}${likes.length} Me gusta</button>
+      ${canEdit(p)?`<button class="btn sm ghost" type="button" id="vEdit">${ICON.edit}Editar</button><button class="btn sm danger" type="button" id="vDel">${ICON.trash}Borrar</button>`:''}
+      ${isProf()?`<button class="btn sm ghost" type="button" id="vPin">${ICON.pin}${p.pinned?'Quitar destacado':'Destacar'}</button>`:''}
+    </div>`;
+  const comments=`<div class="comments"><h3 style="font-size:19px">Comentarios (${cm.length})</h3>
+      ${cm.map(([cid,c])=>`<div class="cmt"><div class="av" style="${c.userKey==='prof'?'background:var(--ochre);color:#1b1408':''}">${esc(initials(c.author))}</div>
+        <div class="bubble"><small><b>${esc(c.author)}</b> · ${esc(c.course)} · ${ago(c.created)}</small><p>${esc(c.text)}</p></div>
+        ${me&&(isProf()||c.userKey===me.key)?`<button class="icon-btn" type="button" data-delc="${cid}" aria-label="Borrar comentario">${ICON.trash}</button>`:'<span></span>'}</div>`).join('')||'<p class="muted">Todavía no hay comentarios.</p>'}
+      ${me?`<form class="linkrow" id="cForm"><input class="input" id="cText" maxlength="600" placeholder="Escribí un comentario" aria-label="Comentario" autocomplete="off"><button class="btn sm accent" type="submit">Comentar</button></form>`
+          :`<button class="btn sm ghost" type="button" id="cLogin">Iniciá sesión para comentar</button>`}
+    </div>`;
+  if(loadMedia){
+    const files=Object.entries(p.files||{}),links=(p.links||[]);
+    const media=links.map(l=>{const li=linkInfo(l);if(!li)return '';
+        if(li.kind==='web')return `<div class="filecard"><div><b>Enlace</b><div class="muted" style="word-break:break-all;font-size:14px">${esc(l)}</div></div><a class="btn sm" href="${esc(l)}" target="_blank" rel="noopener">Abrir enlace</a></div>`;
+        return `<div class="frame ${li.kind==='youtube'?'r169':''}"><iframe src="${esc(li.embed)}" title="${esc(LINK_NAME[li.kind])}" allowfullscreen allow="autoplay; encrypted-media; picture-in-picture; fullscreen" loading="lazy"></iframe></div>
+          <div class="actions">${fullBtn()}<a class="btn ghost sm" href="${esc(l)}" target="_blank" rel="noopener">Abrir en otra pestaña</a></div>`;}).join('')
+      +files.map(([fid,f])=>`<div id="fv-${fid}">${f.thumb?`<img src="${f.thumb}" alt="${esc(f.name)}">`:`<div class="loading">Cargando ${esc(f.name)}…</div>`}</div>`).join('');
+    v.innerHTML=head+`${p.desc?`<p class="desc">${esc(p.desc)}</p>`:''}<div class="media" id="vMedia">${media||'<p class="muted">Este trabajo no tiene archivos.</p>'}</div><div id="vTools">${tools}</div><div id="vCm">${comments}</div>`;
+    files.forEach(([fid,f])=>showFile(fid,f));
+  }else{
+    // sólo refresco lo que cambia (likes, comentarios) sin recargar los archivos
+    v.querySelector('.dlg-head').outerHTML=head;$('#vTools').innerHTML=tools;$('#vCm').innerHTML=comments;
+  }
+  bindView(id,p);
+}
+async function showFile(fid,f){
+  const box=document.getElementById('fv-'+fid);if(!box)return;
+  const t=f.type||'',ext=extOf(f.name);
+  const dl=url=>`<a class="btn ghost sm" href="${url}" download="${esc(f.name)}">${ICON.down}Descargar</a>`;
+  if(!(t.startsWith('image/')||t.startsWith('video/')||t.startsWith('audio/')||t==='application/pdf')){
+    box.innerHTML=`<div class="filecard"><div style="display:flex;gap:12px;align-items:center"><span class="ext">${esc(ext)}</span><div><b>${esc(f.name)}</b><div class="muted" style="font-size:14px">${sizeTxt(f.size||0)}${/PPT|KEY|ODP/.test(ext)?' · Las presentaciones de PowerPoint se descargan para verlas. Si la subís también en PDF o como link de Google Slides o Canva, se ve acá mismo.':''}</div></div></div><button class="btn sm" type="button" data-dl>${ICON.down}Descargar</button></div>`;
+    box.querySelector('[data-dl]').onclick=async ev=>{ev.target.disabled=true;try{const u=await fileURL(fid,t);const a=document.createElement('a');a.href=u;a.download=f.name;document.body.appendChild(a);a.click();a.remove();}catch(ex){toast(ex.message,true);}ev.target.disabled=false;};
+    return;
+  }
+  try{
+    const url=await fileURL(fid,t);const b=document.getElementById('fv-'+fid);if(!b)return;
+    if(t.startsWith('image/'))b.innerHTML=`<img src="${url}" alt="${esc(f.name)}">`;
+    else if(t.startsWith('video/'))b.innerHTML=`<video src="${url}" controls playsinline></video>`;
+    else if(t.startsWith('audio/'))b.innerHTML=`<div class="filecard"><b>${esc(f.name)}</b><audio src="${url}" controls></audio></div>`;
+    else b.innerHTML=`<div class="frame"><iframe src="${url}" title="${esc(f.name)}"></iframe></div><div class="actions" style="margin-top:8px">${fullBtn()}${dl(url)}</div>`;
+  }catch(ex){const b=document.getElementById('fv-'+fid);if(b)b.innerHTML=`<div class="loading">No se pudo cargar ${esc(f.name)}. ${esc(ex.message||'')}</div>`;}
+}
+$('#view').addEventListener('click',e=>{
+  const b=e.target.closest('[data-full]');if(!b)return;
+  const fr=b.closest('.actions').previousElementSibling;const el=fr&&fr.querySelector('iframe');
+  if(el&&el.requestFullscreen)el.requestFullscreen().catch(()=>toast('Tu navegador no permite pantalla completa acá.',true));
+});
+function bindView(id,p){
+  $('#vClose').onclick=()=>$('#dView').close();
+  $('#vLike').onclick=()=>{if(!me){openLogin(()=>renderView(false));return;}
+    const r=$('#vLike').getBoundingClientRect();if(!(p.likes&&p.likes[me.key]))leafBurst(r.left+r.width/2,r.top+r.height/2,14);
+    db.ref(`muro/posts/${id}/likes/${me.key}`).set(p.likes&&p.likes[me.key]?null:true).catch(ex=>toast(ex.message,true));};
+  const ed=$('#vEdit');if(ed)ed.onclick=()=>startPost(id);
+  const del=$('#vDel');if(del)del.onclick=()=>deletePost(id);
+  const pin=$('#vPin');if(pin)pin.onclick=()=>db.ref(`muro/posts/${id}/pinned`).set(p.pinned?null:true).then(()=>toast(p.pinned?'Ya no está destacado.':'Trabajo destacado.'));
+  const cl=$('#cLogin');if(cl)cl.onclick=()=>openLogin(()=>renderView(false));
+  const cf=$('#cForm');if(cf)cf.onsubmit=ev=>{ev.preventDefault();const t=$('#cText').value.trim();if(!t)return;
+    db.ref('muro/comments/'+id).push({text:t,author:me.name,course:me.course,userKey:me.key,created:Date.now()}).then(()=>{const c=$('#cText');if(c){c.value='';c.focus();}}).catch(ex=>toast(ex.message,true));};
+  document.querySelectorAll('#vCm [data-delc]').forEach(b=>b.onclick=()=>deleteComment(id,b.dataset.delc));
+}
+async function deletePost(id){
+  const p=S.posts[id];if(!p)return;
+  if(!await ask('¿Borrar este trabajo?',`Se borra “${p.title}” con todos sus archivos y comentarios. No se puede deshacer.`))return;
+  const upd={['muro/posts/'+id]:null,['muro/comments/'+id]:null};
+  Object.keys(p.files||{}).forEach(fid=>{upd['muro/files/'+fid]=null;upd['muro/chunks/'+fid]=null;});
+  try{await db.ref().update(upd);$('#dView').open&&$('#dView').close();toast('Trabajo borrado.');}catch(ex){toast('No se pudo borrar: '+ex.message,true);}
+}
+async function deleteComment(pid,cid){
+  if(!await ask('¿Borrar este comentario?','El comentario desaparece para todos.'))return;
+  db.ref(`muro/comments/${pid}/${cid}`).remove().then(()=>toast('Comentario borrado.')).catch(ex=>toast(ex.message,true));
+}
+
+/* ===== panel de la profesora ===== */
+$('#panelBtn').onclick=()=>{S.panel=!S.panel;renderPanel();renderWho();if(S.panel)$('#panel').scrollIntoView({behavior:reduceMotion?'auto':'smooth',block:'start'});};
+function renderPanel(){
+  const el=$('#panel');el.hidden=!(isProf()&&S.panel);if(el.hidden)return;
+  const people={};
+  const touch=(k,n,c)=>people[k]||(people[k]={name:n,course:c,posts:0,cm:0});
+  Object.values(S.posts).forEach(p=>touch(p.userKey,p.author,p.course).posts++);
+  const recent=[];
+  Object.entries(S.comments).forEach(([pid,cs])=>Object.entries(cs||{}).forEach(([cid,c])=>{touch(c.userKey,c.author,c.course).cm++;recent.push({pid,cid,...c});}));
+  recent.sort((a,b)=>b.created-a.created);
+  const stu=Object.entries(people).filter(([k])=>k!=='prof').sort(([,a],[,b])=>a.course.localeCompare(b.course)||a.name.localeCompare(b.name));
+  const posts=Object.entries(S.posts).sort(([,a],[,b])=>b.created-a.created);
+  el.innerHTML=`<div class="sec-head" style="margin:0"><h2 style="font-size:26px">Panel de la profesora</h2><span class="role prof">Modo profesora</span></div>
+    <label class="switch"><input type="checkbox" id="cfgClosed" ${S.config.closed?'checked':''}> Cerrar las publicaciones nuevas (los chicos pueden mirar y comentar, pero no subir)</label>
+    <div class="panel-grid">
+      <div class="pbox"><h3>Trabajos (${posts.length})</h3><div class="plist">${posts.map(([id,p])=>`<div class="prow"><div class="t"><b>${esc(p.title)}</b><span class="muted">${esc(p.author)} · ${esc(p.course)} · ${esc(ecoOf(p.eco).n)}</span></div>
+        <div class="actions"><button class="icon-btn" type="button" data-popen="${id}" aria-label="Ver">${ICON.edit}</button><button class="icon-btn" type="button" data-pdel="${id}" aria-label="Borrar">${ICON.trash}</button></div></div>`).join('')||'<p class="muted">Sin trabajos.</p>'}</div></div>
+      <div class="pbox"><h3>Comentarios recientes (${recent.length})</h3><div class="plist">${recent.slice(0,60).map(c=>`<div class="prow"><div class="t"><b>${esc(c.author)} · ${esc(c.course)}</b><span>${esc(c.text)}</span><span class="muted" style="font-size:12px">en “${esc((S.posts[c.pid]||{}).title||'')}” · ${ago(c.created)}</span></div>
+        <button class="icon-btn" type="button" data-cdel="${c.pid}|${c.cid}" aria-label="Borrar comentario">${ICON.trash}</button></div>`).join('')||'<p class="muted">Sin comentarios.</p>'}</div></div>
+      <div class="pbox"><h3>Estudiantes (${stu.length})</h3>
+        <div class="plist">${stu.map(([k,s])=>`<div class="prow"><div class="t"><b>${esc(s.name)}</b><span class="muted">${esc(s.course)} · ${s.posts} trabajo${s.posts===1?'':'s'} · ${s.cm} comentario${s.cm===1?'':'s'}</span></div>
+          <button class="btn sm ghost" type="button" data-reset="${k}">Reiniciar clave</button></div>`).join('')||'<p class="muted">Todavía nadie publicó.</p>'}</div>
+        <small class="muted">Reiniciar clave borra la contraseña: la próxima vez que esa persona entre, elige una nueva.</small></div>
+    </div>`;
+  $('#cfgClosed').onchange=e=>db.ref('muro/config/closed').set(e.target.checked||null).then(()=>toast(e.target.checked?'Publicaciones cerradas.':'Publicaciones abiertas.'));
+  el.querySelectorAll('[data-popen]').forEach(b=>b.onclick=()=>openView(b.dataset.popen));
+  el.querySelectorAll('[data-pdel]').forEach(b=>b.onclick=()=>deletePost(b.dataset.pdel));
+  el.querySelectorAll('[data-cdel]').forEach(b=>b.onclick=()=>{const[p,c]=b.dataset.cdel.split('|');deleteComment(p,c);});
+  el.querySelectorAll('[data-reset]').forEach(b=>b.onclick=async()=>{
+    if(!await ask('¿Reiniciar la contraseña?','La próxima vez que entre con ese nombre y curso va a poder elegir una contraseña nueva.','Sí, reiniciar'))return;
+    db.ref('muro/users/'+b.dataset.reset).remove().then(()=>toast('Contraseña reiniciada.')).catch(ex=>toast(ex.message,true));});
+}
+
+/* ===== conexión en tiempo real ===== */
+function renderAll(){renderWho();renderWall();renderPanel();renderBanners();if(S.openId)renderView(false);}
+window.startPost=startPost;
+renderAll();
+try{
+  firebase.initializeApp(FIREBASE);db=firebase.database();
+  const fail=ex=>{S.err=('No se pudo leer la base de datos ('+(ex&&ex.code||ex)+'). Revisá las reglas de Firebase: tienen que permitir leer y escribir en “muro”.');renderBanners();};
+  db.ref('.info/connected').on('value',s=>{const n=$('#net');n.classList.toggle('on',!!s.val());n.title=s.val()?'Conectado':'Sin conexión';});
+  db.ref('muro/posts').on('value',s=>{S.posts=s.val()||{};renderWall();renderPanel();if(S.openId)renderView(false);},fail);
+  db.ref('muro/comments').on('value',s=>{S.comments=s.val()||{};renderWall();renderPanel();if(S.openId)renderView(false);},fail);
+  db.ref('muro/config').on('value',s=>{S.config=s.val()||{};renderBanners();renderPanel();},fail);
+}catch(ex){renderBanners('No se pudo iniciar Firebase: '+ex.message);}
+</script>
+</body>
+</html>
